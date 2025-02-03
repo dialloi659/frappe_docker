@@ -1,0 +1,33 @@
+services:
+  configurator:
+    container_name: frappe-configurator
+
+  backend:
+    container_name: ${BACKEND_CONTAINER_NAME}
+
+  frontend:
+    container_name: ${FRONTEND_CONTAINER_NAME}
+
+  queue-short:
+    container_name: frappe-queue-short
+
+  queue-long:
+    container_name: frappe-queue-long
+
+  scheduler:
+    container_name: frappe-scheduler
+
+  # create-site:
+  #   container_name: frappe-create-site
+
+  db:
+    container_name: frappe-db
+
+  redis-queue:
+    container_name: frappe-redis-queue
+
+  redis-cache:
+    container_name: frappe-redis-cache
+
+  websocket:
+    container_name: frappe-websocket
