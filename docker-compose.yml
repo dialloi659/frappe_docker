@@ -6,6 +6,12 @@ services:
         condition: service_completed_successfully
         required: true
     image: frappe/erpnext:v15.49.3
+    environment:
+      DB_HOST: ${BACKEND_DB_CONTAINER_NAME}
+      DB_PORT: "${DB_PORT}"
+      # DB_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
     networks:
       default: null
     platform: linux/amd64
@@ -22,7 +28,13 @@ services:
   configurator:
     command:
       - |
-        ls -1 apps > sites/apps.txt; bench set-config -g db_host $$DB_HOST; bench set-config -gp db_port $$DB_PORT; bench set-config -g redis_cache "redis://$$REDIS_CACHE"; bench set-config -g redis_queue "redis://$$REDIS_QUEUE"; bench set-config -g redis_socketio "redis://$$REDIS_QUEUE"; bench set-config -gp socketio_port $$SOCKETIO_PORT;
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host frappe-db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache "redis://frappe-redis-cache:6379";
+        bench set-config -g redis_queue "redis://frappe-redis-queue:6379";
+        bench set-config -g redis_socketio "redis://frappe-redis-queue:6379";
+        bench set-config -gp socketio_port 9000;
     depends_on:
       db:
         condition: service_healthy
@@ -37,11 +49,11 @@ services:
       - bash
       - -c
     environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
-      SOCKETIO_PORT: "9000"
+      DB_HOST: ${BACKEND_DB_CONTAINER_NAME}
+      DB_PORT: "${DB_PORT}"
+      REDIS_CACHE: ${REDIS_CACHE_CONTAINER_NAME}:${REDIS_CACHE_CONTAINER_PORT}
+      REDIS_QUEUE: ${REDIS_QUEUE_CONTAINER_NAME}:${REDIS_QUEUE_CONTAINER_PORT}
+      SOCKETIO_PORT: "${SOCKETIO_PORT}"
     image: frappe/erpnext:v15.49.3
     networks:
       default: null
@@ -63,14 +75,20 @@ services:
       - --skip-character-set-client-handshake
       - --skip-innodb-read-only-compressed
     environment:
-      MYSQL_ROOT_PASSWORD: "123"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
     healthcheck:
       test:
         - CMD-SHELL
-        - mysqladmin ping -h localhost --password=123
+        - mysqladmin ping -h localhost --password=${MYSQL_ROOT_PASSWORD}
       interval: 1s
       retries: 20
     image: mariadb:10.6
+    ports:
+      - mode: ingress
+        target: ${DB_PORT}
+        published: "${DB_CONTAINER_HOST_PORT}"
+        protocol: tcp
     networks:
       default: null
     volumes:
@@ -93,7 +111,7 @@ services:
       CLIENT_MAX_BODY_SIZE: 50m
       FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER}
       PROXY_READ_TIMEOUT: "120"
-      SOCKETIO: websocket:9000
+      SOCKETIO: ${WEBSOCKET_CONTAINER_NAME}:${SOCKETIO_PORT}
       UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
       UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
       UPSTREAM_REAL_IP_RECURSIVE: "off"
@@ -116,39 +134,6 @@ services:
         source: logs
         target: /home/frappe/frappe-bench/logs
         volume: {}
-
-  create-site:
-    image: frappe/erpnext:v15.50.0
-    # networks:
-    #   - frappe_network
-    deploy:
-      restart_policy:
-        condition: none
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    entrypoint:
-      - bash
-      - -c
-    command:
-      - >
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        export start=`date +%s`;
-        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
-        do
-          echo "Waiting for sites/common_site_config.json to be created";
-          sleep 5;
-          if (( `date +%s`-start > 120 )); then
-            echo "could not find sites/common_site_config.json with required keys";
-            exit 1
-          fi
-        done;
-        echo "sites/common_site_config.json found";
-        bench new-site --mariadb-user-host-login-scope='%' --admin-password=admin --db-root-username=root --db-root-password=admin --install-app erpnext --set-default frontend;
   queue-long:
     command:
       - bench

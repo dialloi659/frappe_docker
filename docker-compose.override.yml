@@ -21,7 +21,7 @@ services:
   #   container_name: frappe-create-site
 
   db:
-    container_name: frappe-db
+    container_name: ${BACKEND_DB_CONTAINER_NAME}
 
   redis-queue:
     container_name: frappe-redis-queue
